@@ -662,10 +662,11 @@ def student_practice(sb, student: str):
     typed_working = ""
 
     # ── Side-by-side: question LEFT · canvas RIGHT ────────────────────────
-    col_q, col_w = st.columns([1, 1], gap="medium")
+    col_q, col_w = st.columns([2, 3], gap="medium")
 
     canvas_data   = None
     typed_working = ""
+    photo_file    = None
 
     with col_q:
         st.markdown("**📄 Question**")
@@ -677,7 +678,7 @@ def student_practice(sb, student: str):
 
     with col_w:
         st.markdown("**✏️ Your working**")
-        tab_draw, tab_type = st.tabs(["✏️ Draw", "⌨️ Type"])
+        tab_draw, tab_type, tab_photo = st.tabs(["✏️ Draw", "⌨️ Type", "📷 Upload photo"])
 
         with tab_draw:
             canvas_result = st_canvas(
@@ -696,6 +697,17 @@ def student_practice(sb, student: str):
             typed_working = st.text_area("Steps", height=440,
                 placeholder="e.g.\n2x + 3 = 11\n2x = 8\nx = 4",
                 key=f"typed_{q['id']}", label_visibility="collapsed")
+
+        with tab_photo:
+            st.caption("Write on paper, take a photo, upload it here")
+            photo_file = st.file_uploader(
+                "Choose photo",
+                type=["jpg", "jpeg", "png"],
+                key=f"photo_{q['id']}",
+                label_visibility="collapsed",
+            )
+            if photo_file:
+                st.image(photo_file, caption="Your working", use_container_width=True)
 
     # ── Final answer ──────────────────────────────────────────────────────
     st.divider()
@@ -736,8 +748,10 @@ def student_practice(sb, student: str):
 
     if submit:
         canvas_used = canvas_data is not None and int(canvas_data.sum()) > 0
-        if not canvas_used and not typed_working.strip() and not final_ans.strip():
-            st.warning("Write your working or final answer first.")
+        photo_used  = photo_file is not None
+
+        if not canvas_used and not photo_used and not typed_working.strip() and not final_ans.strip():
+            st.warning("Add your working — draw, type, or upload a photo.")
             return
 
         combined = ""
@@ -746,28 +760,32 @@ def student_practice(sb, student: str):
         ms_text = q.get("mark_scheme_text") or ""
 
         with st.spinner("Marking …"):
-            feedback = (mark_answer_canvas(q, canvas_data, final_ans, ms_text)
-                        if canvas_used else mark_answer(q, combined, ms_text))
+            if photo_used:
+                photo_bytes = photo_file.read()
+                mime        = "image/jpeg" if photo_file.name.lower().endswith((".jpg",".jpeg")) else "image/png"
+                feedback    = mark_answer_photo(q, photo_bytes, mime, final_ans, ms_text)
+                working_url = save_working_photo(student, q["id"], photo_bytes, mime)
+            elif canvas_used:
+                feedback    = mark_answer_canvas(q, canvas_data, final_ans, ms_text)
+                working_url = save_working_image(student, q["id"], canvas_data)
+            else:
+                feedback    = mark_answer(q, combined, ms_text)
+                working_url = ""
 
         score   = feedback["score"]
         max_s   = q["marks"]
         correct = score >= max_s * 0.7
-        working_url = save_working_image(student, q["id"], canvas_data) if canvas_used else ""
 
-        # Store attempt with round number
         sb.table("attempts").insert({
             "question_id": q["id"], "student_name": student,
-            "student_answer": final_ans or typed_working or "(canvas)",
+            "student_answer": final_ans or typed_working or "(photo/canvas)",
             "score": score, "max_score": max_s, "is_correct": correct,
             "claude_feedback": feedback["comment"],
             "working_image_url": working_url,
             "round": rnd,
         }).execute()
 
-        # Mark assignment as completed
-        sb.table("assignments").update({
-            "status": "completed"
-        }).eq("id", assign_id).execute()
+        sb.table("assignments").update({"status": "completed"}).eq("id", assign_id).execute()
 
         st.session_state.submitted_id  = q["id"]
         st.session_state.last_feedback = {
@@ -775,6 +793,67 @@ def student_practice(sb, student: str):
             "comment": feedback["comment"], "model_answer": feedback.get("model_answer", "")
         }
         st.rerun()
+
+
+def save_working_photo(student: str, question_id: int,
+                       photo_bytes: bytes, mime: str) -> str:
+    """Save uploaded photo to Supabase Storage, return public URL."""
+    ext  = "jpg" if "jpeg" in mime else "png"
+    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = f"workings/{student}/q{question_id}_{ts}.{ext}"
+    try:
+        get_supabase().storage.from_(STORAGE_BUCKET).upload(
+            path=path, file=photo_bytes,
+            file_options={"content-type": mime, "upsert": "true"},
+        )
+        return get_supabase().storage.from_(STORAGE_BUCKET).get_public_url(path)
+    except Exception:
+        return ""
+
+
+def mark_answer_photo(q: dict, photo_bytes: bytes, mime: str,
+                      final_answer: str, ms_text: str = "") -> dict:
+    """Mark a photo of handwritten working."""
+    max_marks  = q.get("marks", 1)
+    img_b64    = base64.b64encode(photo_bytes).decode()
+    ms_section = f"\nOfficial mark scheme:\n{ms_text}\n" if ms_text else "\nNo mark scheme — use your knowledge.\n"
+
+    content = [
+        {
+            "type": "text",
+            "text": f"""You are a GCSE examiner marking a photo of handwritten student working.
+
+IMPORTANT handwriting reading notes:
+- A diagonal stroke "/" is almost always the number "1" not a slash
+- Read numbers carefully before any arithmetic checks
+
+Question: {q.get('brief_description', '')}
+Subject: {(q.get('papers') or {}).get('subjects', {}).get('name', 'Maths')}
+Max marks: {max_marks}
+Student's typed final answer: {final_answer or '(see working in photo)'}
+{ms_section}
+Award M marks for correct method, A marks for correct answer, B marks for independent statements.
+Give partial credit proportionally for multi-mark questions.
+
+Return JSON only:
+{{
+  "score": <integer 0 to {max_marks}>,
+  "comment": "<1-2 sentences: specific feedback on method and answer>",
+  "model_answer": "<full worked solution if less than full marks, else empty>"
+}}""",
+        },
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": mime, "data": img_b64},
+        },
+    ]
+
+    resp = get_ai().messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=800,
+        messages=[{"role": "user", "content": content}],
+    )
+    return _parse_mark_json(resp.content[0].text.strip())
 
 
 def _parse_mark_json(raw: str) -> dict:

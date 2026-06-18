@@ -7,7 +7,7 @@ GCSE_PATH = r"C:\Users\Thanuja\OneDrive\Desktop\GCSE"
 STORAGE_BUCKET = "question-images"
 
 # ── Students ──────────────────────────────────────────────────────────────────
-STUDENTS = ["M1", "M2"]
+STUDENTS = ["M1", "M2", "M3"]
 
 # ── Difficulty colours ────────────────────────────────────────────────────────
 DIFFICULTY_COLOURS = {

@@ -537,6 +537,20 @@ def student_dashboard(sb, student: str):
             )
 
 
+import requests as _requests
+
+@st.cache_data(ttl=3600)
+def load_question_image(url: str):
+    """Download question image from Supabase Storage, return as PIL Image scaled to 720px wide."""
+    resp = _requests.get(url, timeout=15)
+    img  = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+    max_w = 720
+    w, h  = img.size
+    if w > max_w:
+        img = img.resize((max_w, int(h * max_w / w)), Image.LANCZOS)
+    return img
+
+
 def save_working_image(student: str, question_id: int, image_data) -> str:
     """Save canvas to Supabase Storage, return public URL."""
     img = Image.fromarray(image_data.astype("uint8"), "RGBA")
@@ -635,62 +649,77 @@ def student_practice(sb, student: str):
     rnd_label = f" · 🔄 Attempt {rnd}" if rnd > 1 else ""
     st.markdown(f"### Q{q['question_number']} · {subj}  \n{badge} **{diff}** · {area} > {topic} · **{q['marks']} marks**{rnd_label}")
 
-    if q.get("image_url"):
-        with st.container(border=True):
-            st.image(q["image_url"], use_container_width=True)
-
     st.divider()
-    st.markdown("**\U0001f4dd Your working**")
 
-    tab_draw, tab_type = st.tabs(["\u270f\ufe0f Draw (touchscreen / mouse)", "\u2328\ufe0f Type"])
+    # ── Toolbar ───────────────────────────────────────────────────────────
+    tc1, tc2, tc3, tc4 = st.columns([1, 1, 1, 3])
+    with tc1:
+        if st.button("🖊️ Pen", use_container_width=True,
+                     type="primary" if st.session_state.draw_mode == "pen" else "secondary",
+                     key="btn_pen"):
+            st.session_state.draw_mode = "pen"; st.rerun()
+    with tc2:
+        if st.button("⬜ Erase", use_container_width=True,
+                     type="primary" if st.session_state.draw_mode == "erase" else "secondary",
+                     key="btn_erase"):
+            st.session_state.draw_mode = "erase"; st.rerun()
+    with tc3:
+        if st.button("🗑️ Clear", use_container_width=True, key="btn_clear"):
+            st.session_state.canvas_reset += 1; st.rerun()
+    with tc4:
+        stroke_size = st.slider("Size", 1, 20,
+                                15 if st.session_state.draw_mode == "erase" else 3,
+                                key="stroke_slider", label_visibility="collapsed")
+
     canvas_data   = None
     typed_working = ""
 
-    with tab_draw:
-        tc1, tc2, tc3, tc4 = st.columns([1, 1, 1, 3])
-        with tc1:
-            if st.button("\U0001f58a\ufe0f Pen", use_container_width=True,
-                         type="primary" if st.session_state.draw_mode == "pen" else "secondary",
-                         key="btn_pen"):
-                st.session_state.draw_mode = "pen"; st.rerun()
-        with tc2:
-            if st.button("\u2b1c Erase", use_container_width=True,
-                         type="primary" if st.session_state.draw_mode == "erase" else "secondary",
-                         key="btn_erase"):
-                st.session_state.draw_mode = "erase"; st.rerun()
-        with tc3:
-            if st.button("\U0001f5d1\ufe0f Clear", use_container_width=True, key="btn_clear"):
-                st.session_state.canvas_reset += 1; st.rerun()
-        with tc4:
-            stroke_size = st.slider("Size", 1, 20,
-                                    15 if st.session_state.draw_mode == "erase" else 3,
-                                    key="stroke_slider", label_visibility="collapsed")
+    # ── Draw directly on the question paper ──────────────────────────────
+    if q.get("image_url"):
+        tab_draw, tab_type = st.tabs(["✏️ Write on paper", "⌨️ Type working"])
 
-        canvas_result = st_canvas(
-            stroke_width     = stroke_size,
-            stroke_color     = "#ffffff" if st.session_state.draw_mode == "erase" else "#1a1a2e",
-            background_color = "#ffffff",
-            height           = 500,
-            drawing_mode     = "freedraw",
-            update_streamlit = True,
-            key = f"canvas_{q['id']}_{st.session_state.canvas_reset}",
-        )
-        if canvas_result.image_data is not None:
-            canvas_data = canvas_result.image_data
-        st.caption("Tip: Erase to fix mistakes · Clear to start again")
+        with tab_draw:
+            st.caption("Write your working directly on the question paper below")
+            try:
+                bg_img = load_question_image(q["image_url"])
+                cw, ch = bg_img.size
+            except Exception:
+                bg_img = None
+                cw, ch = 720, 500
 
-    with tab_type:
-        typed_working = st.text_area("Steps", height=300,
-            placeholder="e.g.\n2x + 3 = 11\n2x = 8\nx = 4",
+            canvas_result = st_canvas(
+                stroke_width     = stroke_size,
+                stroke_color     = "#ffffff" if st.session_state.draw_mode == "erase" else "#c00000",
+                background_image = bg_img,
+                background_color = "#ffffff",
+                height           = ch,
+                width            = cw,
+                drawing_mode     = "freedraw",
+                update_streamlit = True,
+                key = f"canvas_{q['id']}_{st.session_state.canvas_reset}",
+            )
+            if canvas_result.image_data is not None:
+                canvas_data = canvas_result.image_data
+            st.caption("🔴 Red ink so your working stands out on the paper · Erase to fix · Clear to restart")
+
+        with tab_type:
+            typed_working = st.text_area("Type your steps", height=300,
+                placeholder="e.g.\n2x + 3 = 11\n2x = 8\nx = 4",
+                key=f"typed_{q['id']}", label_visibility="collapsed")
+
+    else:
+        # No image — just show text area
+        st.info(q.get("brief_description", ""))
+        typed_working = st.text_area("Your working", height=300,
             key=f"typed_{q['id']}", label_visibility="collapsed")
 
-    # ── Final answer — always visible, outside tabs ───────────────────────
+    # ── Final answer ──────────────────────────────────────────────────────
     st.divider()
     st.markdown("### ✏️ Final Answer")
-    st.info("💡 Always type your final answer here — Claude cross-checks it against the mark scheme to award the accuracy mark accurately.")
+    st.info("💡 Always type your final answer here — Claude cross-checks it against the mark scheme.")
     final_ans = st.text_input(
         "Type your final answer",
-        placeholder="e.g.  x = 4   or   180   or   13.2 cm   or   (x+3)(x-5)",
+        placeholder="e.g.  x = 4   or   180   or   13.2 cm",
         key=f"fin_{q['id']}",
     )
 

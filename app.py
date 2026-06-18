@@ -538,20 +538,6 @@ def student_dashboard(sb, student: str):
             )
 
 
-import requests as _requests
-
-@st.cache_data(ttl=3600)
-def load_question_image(url: str):
-    """Download question image from Supabase Storage, return as PIL Image scaled to 720px wide."""
-    resp = _requests.get(url, timeout=15)
-    img  = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-    max_w = 720
-    w, h  = img.size
-    if w > max_w:
-        img = img.resize((max_w, int(h * max_w / w)), Image.LANCZOS)
-    return img
-
-
 def save_working_image(student: str, question_id: int, image_data) -> str:
     """Save canvas to Supabase Storage, return public URL."""
     img = Image.fromarray(image_data.astype("uint8"), "RGBA")
@@ -677,31 +663,25 @@ def student_practice(sb, student: str):
 
     # ── Draw directly on the question paper ──────────────────────────────
     if q.get("image_url"):
-        tab_draw, tab_type = st.tabs(["✏️ Write on paper", "⌨️ Type working"])
+        tab_draw, tab_type = st.tabs(["✏️ Write working", "⌨️ Type working"])
 
         with tab_draw:
-            st.caption("Write your working directly on the question paper below")
-            try:
-                bg_img = load_question_image(q["image_url"])
-                cw, ch = bg_img.size
-            except Exception:
-                bg_img = None
-                cw, ch = 720, 500
+            # Show question image above the canvas
+            st.image(q["image_url"], use_container_width=True)
+            st.caption("✏️ Write your working below:")
 
             canvas_result = st_canvas(
                 stroke_width     = stroke_size,
                 stroke_color     = "#ffffff" if st.session_state.draw_mode == "erase" else "#c00000",
-                background_image = bg_img,
                 background_color = "#ffffff",
-                height           = ch,
-                width            = cw,
+                height           = 400,
                 drawing_mode     = "freedraw",
                 update_streamlit = True,
                 key = f"canvas_{q['id']}_{st.session_state.canvas_reset}",
             )
             if canvas_result.image_data is not None:
                 canvas_data = canvas_result.image_data
-            st.caption("🔴 Red ink so your working stands out on the paper · Erase to fix · Clear to restart")
+            st.caption("🔴 Red ink · Erase to fix · Clear to restart")
 
         with tab_type:
             typed_working = st.text_area("Type your steps", height=300,

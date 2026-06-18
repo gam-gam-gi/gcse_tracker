@@ -583,7 +583,18 @@ def preprocess_canvas(image_data) -> tuple[bytes, str]:
 
 
 def student_practice(sb, student: str):
-    st.title("\U0001f4dd Practice Questions")
+    # Full-width layout for practice — remove Streamlit's default max-width
+    st.markdown("""
+        <style>
+        .main .block-container {
+            max-width: 100% !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.title("📝 Practice Questions")
 
     # Only show pending assignments (status='pending')
     assigned = (sb.table("assignments")

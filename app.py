@@ -661,38 +661,41 @@ def student_practice(sb, student: str):
     canvas_data   = None
     typed_working = ""
 
-    # ── Draw directly on the question paper ──────────────────────────────
-    if q.get("image_url"):
-        tab_draw, tab_type = st.tabs(["✏️ Write working", "⌨️ Type working"])
+    # ── Side-by-side: question LEFT · canvas RIGHT ────────────────────────
+    col_q, col_w = st.columns([1, 1], gap="medium")
+
+    canvas_data   = None
+    typed_working = ""
+
+    with col_q:
+        st.markdown("**📄 Question**")
+        with st.container(height=580, border=True):
+            if q.get("image_url"):
+                st.image(q["image_url"], use_container_width=True)
+            else:
+                st.info(q.get("brief_description", ""))
+
+    with col_w:
+        st.markdown("**✏️ Your working**")
+        tab_draw, tab_type = st.tabs(["✏️ Draw", "⌨️ Type"])
 
         with tab_draw:
-            # Show question image above the canvas
-            st.image(q["image_url"], use_container_width=True)
-            st.caption("✏️ Write your working below:")
-
             canvas_result = st_canvas(
                 stroke_width     = stroke_size,
                 stroke_color     = "#ffffff" if st.session_state.draw_mode == "erase" else "#c00000",
                 background_color = "#ffffff",
-                height           = 400,
+                height           = 520,
                 drawing_mode     = "freedraw",
                 update_streamlit = True,
                 key = f"canvas_{q['id']}_{st.session_state.canvas_reset}",
             )
             if canvas_result.image_data is not None:
                 canvas_data = canvas_result.image_data
-            st.caption("🔴 Red ink · Erase to fix · Clear to restart")
 
         with tab_type:
-            typed_working = st.text_area("Type your steps", height=300,
+            typed_working = st.text_area("Steps", height=440,
                 placeholder="e.g.\n2x + 3 = 11\n2x = 8\nx = 4",
                 key=f"typed_{q['id']}", label_visibility="collapsed")
-
-    else:
-        # No image — just show text area
-        st.info(q.get("brief_description", ""))
-        typed_working = st.text_area("Your working", height=300,
-            key=f"typed_{q['id']}", label_visibility="collapsed")
 
     # ── Final answer ──────────────────────────────────────────────────────
     st.divider()

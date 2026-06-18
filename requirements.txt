@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 plotly>=5.20.0
 pandas>=2.0.0
 streamlit-drawable-canvas>=0.9.3
+requests>=2.31.0

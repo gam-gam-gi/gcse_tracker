@@ -46,7 +46,7 @@ def login_screen():
     st.title("📚 GCSE Tracker")
     st.markdown("### Please log in")
     st.divider()
-    role = st.radio("Who are you?", ["Parent", "M1", "M2"], horizontal=True)
+    role = st.radio("Who are you?", ["Parent", "M1", "M2", "M3"], horizontal=True)
     pin  = st.text_input("PIN", type="password", max_chars=6,
                           placeholder="Enter your PIN")
     if st.button("🔓 Login", type="primary", use_container_width=True):
@@ -54,6 +54,7 @@ def login_screen():
             "Parent": os.getenv("PARENT_PIN", "1234"),
             "M1":     os.getenv("M1_PIN",     "1234"),
             "M2":     os.getenv("M2_PIN",     "1234"),
+            "M3":     os.getenv("M3_PIN",     "1234"),
         }
         if pin == pins[role]:
             st.session_state.mode    = "parent" if role == "Parent" else "student"

@@ -426,6 +426,9 @@ def page_weekly_report(sb):
                         )
                         if att.get("working_image_url"):
                             st.image(att["working_image_url"], use_container_width=True)
+                        elif att.get("student_answer") and att["student_answer"] not in ["(canvas/photo)", "(canvas)"]:
+                            st.markdown("**Typed answer:**")
+                            st.code(att["student_answer"], language=None)
 
                     with b_col:
                         # Score override
@@ -761,6 +764,9 @@ def student_practice(sb, student: str):
         canvas_used = canvas_data is not None and int(canvas_data.sum()) > 0
         photo_used  = photo_file is not None
 
+        # Read typed working from session state — survives tab switches and reruns
+        typed_working = st.session_state.get(f"typed_{q['id']}", "") or typed_working
+
         if not canvas_used and not photo_used and not typed_working.strip() and not final_ans.strip():
             st.warning("Add your working — draw, type, or upload a photo.")
             return
@@ -789,7 +795,7 @@ def student_practice(sb, student: str):
 
         sb.table("attempts").insert({
             "question_id": q["id"], "student_name": student,
-            "student_answer": final_ans or typed_working or "(photo/canvas)",
+            "student_answer": combined or final_ans or "(canvas/photo)",
             "score": score, "max_score": max_s, "is_correct": correct,
             "claude_feedback": feedback["comment"],
             "working_image_url": working_url,

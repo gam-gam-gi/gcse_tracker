@@ -271,6 +271,28 @@ def page_question_bank(sb):
         area = ((q.get("topics") or {}).get("topic_areas") or {}).get("name", "Other")
         grouped[subj][area].append(q)
 
+    # ── Fetch existing assignment statuses for selected targets ───────────
+    targets = STUDENTS if student_f == "Both" else ([student_f] if student_f != "—" else [])
+    assigned_map = {}
+    if targets:
+        asgn_res = (sb.table("assignments")
+                      .select("question_id, student_name, status")
+                      .in_("student_name", targets)
+                      .execute())
+        for row in asgn_res.data:
+            key = (row["question_id"], row["student_name"])
+            existing = assigned_map.get(key)
+            if existing != "pending":
+                assigned_map[key] = row["status"]
+
+    def assign_status_for_q(qid):
+        statuses = [assigned_map.get((qid, s)) for s in targets]
+        if "pending" in statuses:
+            return "pending"
+        if any(s == "completed" for s in statuses):
+            return "done"
+        return None
+
     # ── Render ────────────────────────────────────────────────────────────
     for subj in sorted(grouped):
         if len(grouped) > 1:
@@ -278,19 +300,25 @@ def page_question_bank(sb):
 
         for area in sorted(grouped[subj]):
             qs = grouped[subj][area]
-            with st.expander(f"**{area}** — {len(qs)} questions", expanded=False):
+            unassigned_count = sum(1 for q in qs if assign_status_for_q(q["id"]) is None)
+            area_label = f"**{area}** — {len(qs)} questions"
+            if targets:
+                area_label += f"  ·  {unassigned_count} unassigned"
+            with st.expander(area_label, expanded=False):
 
                 # ── Bulk assign bar ───────────────────────────────────────
-                if student_f != "—":
-                    targets = STUDENTS if student_f == "Both" else [student_f]
+                if targets:
                     bar_col1, bar_col2 = st.columns([3, 1])
                     with bar_col1:
-                        st.caption(f"Assign all {len(qs)} {area} questions to {', '.join(targets)}")
+                        st.caption(f"Assign unassigned {area} questions to {', '.join(targets)}")
                     with bar_col2:
-                        if st.button(f"Assign all", key=f"bulk_{subj}_{area}",
-                                     type="primary", use_container_width=True):
+                        if st.button("Assign all", key=f"bulk_{subj}_{area}",
+                                     type="primary", use_container_width=True,
+                                     disabled=(unassigned_count == 0)):
                             added = 0
                             for q in qs:
+                                if assign_status_for_q(q["id"]) is not None:
+                                    continue
                                 for s in targets:
                                     try:
                                         sb.table("assignments").insert({
@@ -298,17 +326,19 @@ def page_question_bank(sb):
                                             "student_name":  s,
                                             "assigned_date": date.today().isoformat(),
                                         }).execute()
+                                        assigned_map[(q["id"], s)] = "pending"
                                         added += 1
                                     except Exception:
-                                        pass  # already assigned
-                            st.success(f"✅ {added} questions assigned to {', '.join(targets)}")
+                                        pass
+                            st.success(f"✅ {added} assignments added")
                     st.divider()
 
                 # ── Individual questions ──────────────────────────────────
                 for q in qs:
-                    topic = (q.get("topics") or {}).get("name", "?")
-                    diff  = q.get("difficulty", "Silver")
-                    pt    = (q.get("papers") or {}).get("paper_type", "")
+                    topic  = (q.get("topics") or {}).get("name", "?")
+                    diff   = q.get("difficulty", "Silver")
+                    pt     = (q.get("papers") or {}).get("paper_type", "")
+                    status = assign_status_for_q(q["id"]) if targets else None
 
                     col_info, col_img, col_btn = st.columns([3, 2, 1])
 
@@ -326,19 +356,27 @@ def page_question_bank(sb):
                             st.image(q["image_url"], use_container_width=True)
 
                     with col_btn:
-                        if student_f != "—":
-                            if st.button("Assign", key=f"a_{q['id']}",
-                                         use_container_width=True):
-                                for s in targets:
-                                    try:
-                                        sb.table("assignments").insert({
-                                            "question_id":   q["id"],
-                                            "student_name":  s,
-                                            "assigned_date": date.today().isoformat(),
-                                        }).execute()
-                                    except Exception:
-                                        pass
-                                st.success(f"→ {', '.join(targets)}")
+                        if targets:
+                            if status == "pending":
+                                st.button("⏳ Pending", key=f"a_{q['id']}",
+                                          use_container_width=True, disabled=True)
+                            elif status == "done":
+                                st.button("✅ Done", key=f"a_{q['id']}",
+                                          use_container_width=True, disabled=True)
+                            else:
+                                if st.button("Assign", key=f"a_{q['id']}",
+                                             use_container_width=True):
+                                    for s in targets:
+                                        try:
+                                            sb.table("assignments").insert({
+                                                "question_id":   q["id"],
+                                                "student_name":  s,
+                                                "assigned_date": date.today().isoformat(),
+                                            }).execute()
+                                            assigned_map[(q["id"], s)] = "pending"
+                                        except Exception:
+                                            pass
+                                    st.success(f"→ {', '.join(targets)}")
 
                     st.divider()
 

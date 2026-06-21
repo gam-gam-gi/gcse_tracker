@@ -357,8 +357,8 @@ def page_weekly_report(sb):
         # All attempts in the period
         res = (sb.table("attempts")
                  .select("id, score, max_score, attempt_date, round, "
-                         "working_image_url, claude_feedback, question_id, "
-                         "questions(id, brief_description, difficulty, marks, "
+                         "working_image_url, claude_feedback, student_answer, question_id, "
+                         "questions(id, brief_description, difficulty, marks, mark_scheme_text, "
                          "papers(subjects(name)), topics(name))")
                  .eq("student_name", student)
                  .gte("attempt_date", week_ago)
@@ -422,7 +422,7 @@ def page_weekly_report(sb):
                     with a_col:
                         st.caption(
                             f"{icon} Attempt #{rnd} · {att['attempt_date'][:10]} · "
-                            f"**{score}/{max_m}** · {att.get('claude_feedback','')[:80]}"
+                            f"**{score}/{max_m}**"
                         )
                         # Decide what to show: typed text takes priority over blank canvas
                         answer_text = att.get("student_answer", "")
@@ -432,10 +432,21 @@ def page_weekly_report(sb):
                         has_typed = bool(answer_text) and not is_placeholder
 
                         if has_typed:
-                            st.markdown("**Typed answer:**")
+                            st.markdown("**Student answer:**")
                             st.info(answer_text)
                         if att.get("working_image_url") and not has_typed:
                             st.image(att["working_image_url"], use_container_width=True)
+
+                        # Full Claude feedback
+                        if att.get("claude_feedback"):
+                            st.markdown("**AI feedback:**")
+                            st.success(att["claude_feedback"])
+
+                        # Mark scheme in expander
+                        ms = (q.get("mark_scheme_text") or "").strip()
+                        if ms:
+                            with st.expander("📋 Mark scheme"):
+                                st.markdown(ms)
 
                     with b_col:
                         # Score override

@@ -396,7 +396,7 @@ def page_weekly_report(sb):
         res = (sb.table("attempts")
                  .select("id, score, max_score, attempt_date, round, "
                          "working_image_url, claude_feedback, student_answer, question_id, "
-                         "questions(id, brief_description, difficulty, marks, mark_scheme_text, "
+                         "questions(id, brief_description, difficulty, marks, image_url, mark_scheme_text, "
                          "papers(subjects(name)), topics(name))")
                  .eq("student_name", student)
                  .gte("attempt_date", week_ago)
@@ -450,6 +450,20 @@ def page_weekly_report(sb):
 
                 st.markdown(f"**{subj} · {topic}**  \n_{desc}_")
 
+                # Show question image and mark scheme
+                q_img = q.get("image_url")
+                q_ms  = (q.get("mark_scheme_text") or "").strip()
+                if q_img or q_ms:
+                    qi_col, ms_col = st.columns([1, 1])
+                    with qi_col:
+                        if q_img:
+                            st.caption("📄 Question")
+                            st.image(q_img, use_container_width=True)
+                    with ms_col:
+                        if q_ms:
+                            with st.expander("📋 Mark scheme"):
+                                st.markdown(q_ms)
+
                 # Show all attempts for this question
                 for att in reversed(attempts):   # oldest first
                     rnd     = att.get("round", 1)
@@ -479,12 +493,6 @@ def page_weekly_report(sb):
                         if att.get("claude_feedback"):
                             st.markdown("**AI feedback:**")
                             st.success(att["claude_feedback"])
-
-                        # Mark scheme in expander
-                        ms = (q.get("mark_scheme_text") or "").strip()
-                        if ms:
-                            with st.expander("📋 Mark scheme"):
-                                st.markdown(ms)
 
                     with b_col:
                         # Score override

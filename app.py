@@ -761,11 +761,17 @@ def student_practice(sb, student: str):
         return
 
     if submit:
-        canvas_used = canvas_data is not None and int(canvas_data.sum()) > 0
-        photo_used  = photo_file is not None
-
-        # Read typed working from session state — survives tab switches and reruns
+        # Typed working — read from session state (survives tab switches)
         typed_working = st.session_state.get(f"typed_{q['id']}", "") or typed_working
+
+        # Canvas is only "used" if student actually drew dark marks
+        # (blank white canvas has all pixels near 255 — that's not a drawing)
+        if canvas_data is not None and canvas_data.size > 0:
+            canvas_used = bool((canvas_data[:, :, :3] < 220).any())
+        else:
+            canvas_used = False
+
+        photo_used = photo_file is not None
 
         if not canvas_used and not photo_used and not typed_working.strip() and not final_ans.strip():
             st.warning("Add your working — draw, type, or upload a photo.")

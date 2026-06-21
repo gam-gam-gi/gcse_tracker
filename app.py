@@ -424,11 +424,18 @@ def page_weekly_report(sb):
                             f"{icon} Attempt #{rnd} · {att['attempt_date'][:10]} · "
                             f"**{score}/{max_m}** · {att.get('claude_feedback','')[:80]}"
                         )
-                        if att.get("working_image_url"):
-                            st.image(att["working_image_url"], use_container_width=True)
-                        elif att.get("student_answer") and att["student_answer"] not in ["(canvas/photo)", "(canvas)"]:
+                        # Decide what to show: typed text takes priority over blank canvas
+                        answer_text = att.get("student_answer", "")
+                        is_placeholder = answer_text in [
+                            "(canvas/photo)", "(canvas)", "(photo/canvas)", ""
+                        ]
+                        has_typed = bool(answer_text) and not is_placeholder
+
+                        if has_typed:
                             st.markdown("**Typed answer:**")
-                            st.code(att["student_answer"], language=None)
+                            st.info(answer_text)
+                        if att.get("working_image_url") and not has_typed:
+                            st.image(att["working_image_url"], use_container_width=True)
 
                     with b_col:
                         # Score override
